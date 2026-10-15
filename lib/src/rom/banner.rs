@@ -66,8 +66,16 @@ impl Banner {
             animation: animation.copied(),
         });
         let keyframes = if let Some(animation) = animation {
-            // A keyframe with no duration ends the animation
-            let used = animation.keyframes.iter().rposition(|keyframe| keyframe.frame_duration() > 0);
+            // A keyframe with no duration ends the animation. Keep everything up to the last keyframe that is not all
+            // zeros: the terminator can hold a bitmap or palette index (Shrek Forever After ends with 0x0100), and
+            // dropping it would change the banner and every DSi digest and HMAC computed over it.
+            let used = animation.keyframes.iter().rposition(|keyframe| {
+                keyframe.frame_duration() > 0
+                    || keyframe.bitmap_index() > 0
+                    || keyframe.palette_index() > 0
+                    || keyframe.flip_horizontally()
+                    || keyframe.flip_vertically()
+            });
             let keyframes = animation.keyframes[..used.map_or(0, |i| i + 1)].iter().map(BannerKeyframe::load_raw).collect();
             Some(keyframes)
         } else {
