@@ -534,12 +534,17 @@ impl<'a> Arm9<'a> {
         if build_info.is_compressed() {
             CompressedSnafu {}.fail()?;
         }
-        Ok(self
-            .get_autoload_info_entries(build_info)?
-            .into_iter()
-            .enumerate()
-            .map(|(index, entry)| AutoloadInfo::new(entry, index as u32))
-            .collect())
+        let mut infos: Vec<AutoloadInfo> = Vec::new();
+        for (index, entry) in self.get_autoload_info_entries(build_info)?.into_iter().enumerate() {
+            let mut info = AutoloadInfo::new(entry, index as u32);
+            // Some games have two autoloads at the ITCM (or DTCM) address, e.g. a real one and an empty one. Only the
+            // first one is the ITCM/DTCM, the others are kept as unknown autoloads so that they don't overwrite it.
+            if !matches!(info.kind(), AutoloadKind::Unknown(_)) && infos.iter().any(|other| other.kind() == info.kind()) {
+                info.kind = AutoloadKind::Unknown(index as u32);
+            }
+            infos.push(info);
+        }
+        Ok(infos)
     }
 
     /// Returns the autoloads of this [`Arm9`].

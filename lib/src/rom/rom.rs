@@ -489,6 +489,16 @@ impl<'a> Rom<'a> {
         }
 
         autoloads.sort_by_key(|autoload| autoload.kind());
+        // Unknown autoloads go back to their original position in the autoload list, which matters when one comes
+        // before the ITCM or DTCM (e.g. a second, empty autoload at the ITCM address)
+        let (mut sorted, unknown): (Vec<_>, Vec<_>) =
+            autoloads.into_iter().partition(|autoload| !matches!(autoload.kind(), raw::AutoloadKind::Unknown(_)));
+        for autoload in unknown {
+            let raw::AutoloadKind::Unknown(index) = autoload.kind() else { unreachable!() };
+            let position = (index as usize).min(sorted.len());
+            sorted.insert(position, autoload);
+        }
+        let autoloads = sorted;
 
         // --------------------- Load HMAC SHA1 key ---------------------
         let arm9_hmac_sha1 = if let Some(hmac_sha1_key_file) = &config.arm9_hmac_sha1_key {
