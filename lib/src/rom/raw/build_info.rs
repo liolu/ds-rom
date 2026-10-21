@@ -94,13 +94,29 @@ impl BuildInfo {
     }
 
     fn check_nitrocode(&self) -> Result<(), RawBuildInfoError> {
-        if self.nitrocode != NITROCODE {
+        if self.is_legacy() {
+            // Early SDK (2004) build infos end after `sdk_version`, without the nitrocode
+            Ok(())
+        } else if self.nitrocode != NITROCODE {
             NoNitrocodeSnafu { expected: NITROCODE, actual: self.nitrocode }.fail()
         } else if self.nitrocode_rev != NITROCODE.swap_bytes() {
             NoNitrocodeSnafu { expected: NITROCODE.swap_bytes(), actual: self.nitrocode_rev }.fail()
         } else {
             Ok(())
         }
+    }
+
+    /// Returns whether this looks like an early SDK build info, which has no nitrocode: the autoload addresses are ordered
+    /// ARM9 addresses and the nitrocode words are not there.
+    fn is_legacy(&self) -> bool {
+        let is_arm9_address = |addr: u32| (0x01000000..0x03000000).contains(&addr);
+        self.nitrocode != NITROCODE
+            && is_arm9_address(self.autoload_blocks)
+            && is_arm9_address(self.autoload_infos_start)
+            && is_arm9_address(self.autoload_infos_end)
+            && self.autoload_blocks <= self.autoload_infos_start
+            && self.autoload_infos_start <= self.autoload_infos_end
+            && self.bss_start <= self.bss_end
     }
 
     /// Reinterprets a `&[u8]` as a reference to [`BuildInfo`].

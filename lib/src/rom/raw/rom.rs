@@ -119,8 +119,14 @@ impl<'a> Rom<'a> {
 
         let footer = self.arm9_footer()?;
         let build_info_offset = if header.arm9_build_info_offset == 0 {
-            let Some(footer) = footer else { return NoBuildInfoSnafu {}.fail() };
-            footer.build_info_offset
+            match footer {
+                Some(footer) => footer.build_info_offset,
+                // Early SDK (2004) ROMs have neither a footer nor a header offset
+                None => match Self::find_legacy_arm9_build_info(header, data) {
+                    Some(offset) => offset,
+                    None => return NoBuildInfoSnafu {}.fail(),
+                },
+            }
         } else if header.arm9_build_info_offset > header.arm9.offset {
             header.arm9_build_info_offset - header.arm9.offset
         } else {
@@ -140,6 +146,46 @@ impl<'a> Rom<'a> {
             Arm9Options { has_footer: footer.is_some() },
         )?;
         Ok(arm9)
+    }
+
+    /// Finds the build info of an ARM9 program that has neither an ARM9 footer nor a build info offset in the header, as in
+    /// ROMs built with early (2004) SDKs. The crt0 loads the build info address from the literal pool word right before the
+    /// autoload callback; if that fails, the nitrocode at the end of the build info is searched for.
+    fn find_legacy_arm9_build_info(header: &Header, data: &[u8]) -> Option<u32> {
+        let base = header.arm9.base_addr;
+        let end = base + data.len() as u32;
+        let read = |offset: u32| -> Option<u32> {
+            let offset = offset as usize;
+            data.get(offset..offset + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()))
+        };
+        let plausible = |offset: u32| -> bool {
+            let in_module = |addr: u32| addr >= base && addr <= end;
+            match (read(offset), read(offset + 4), read(offset + 8), read(offset + 12), read(offset + 16)) {
+                (Some(infos_start), Some(infos_end), Some(blocks), Some(bss_start), Some(bss_end)) => {
+                    offset % 4 == 0
+                        && in_module(infos_start)
+                        && in_module(infos_end)
+                        && in_module(blocks)
+                        && blocks <= infos_start
+                        && infos_start <= infos_end
+                        && bss_start <= bss_end
+                }
+                _ => false,
+            }
+        };
+
+        let callback = header.arm9_autoload_callback;
+        if callback >= base + 4 && callback < end {
+            if let Some(address) = read(callback - 4 - base) {
+                if address >= base && address < end && plausible(address - base) {
+                    return Some(address - base);
+                }
+            }
+        }
+
+        let nitrocode = data.chunks(4).position(|chunk| chunk == NITROCODE_BYTES)? as u32 * 4;
+        let offset = nitrocode.checked_sub(0x1c)?;
+        plausible(offset).then_some(offset)
     }
 
     /// Returns a reference to the ARM9 footer of this [`Rom`], or [`None`] if this ROM has no ARM9 footer. The footer is
