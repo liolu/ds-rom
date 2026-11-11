@@ -329,7 +329,7 @@ impl BannerVersion {
         match self {
             BannerVersion::Original => 0x840,
             BannerVersion::China => 0x940,
-            BannerVersion::Korea => 0x1240,
+            BannerVersion::Korea => 0xa40, // Nintendogs Korea (ADGK/AD2K/AD3K): files start 0xa40 after the banner
             BannerVersion::Animated => 0x23c0,
         }
     }
